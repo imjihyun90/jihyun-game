@@ -136,7 +136,7 @@ function update() {
 
   // 시간바 (먹일수록 빨리 줄어듦) — 다 떨어지면 실패
   if (jh.hungry) {
-    jh.time -= 1 / Math.max(90, 200 - fed * 50);
+    jh.time -= 1 / Math.max(130, 300 - fed * 50);
     if (jh.time <= 0) { jh.time = 0; over = true; }
   } else if (--jh.wait <= 0) {
     jh.hungry = true; jh.time = 1;
