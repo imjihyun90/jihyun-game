@@ -136,7 +136,7 @@ function update() {
 
   // 시간바 (먹일수록 빨리 줄어듦) — 다 떨어지면 실패
   if (jh.hungry) {
-    jh.time -= 1 / Math.max(240, 600 - fed * 30);
+    jh.time -= 1 / Math.max(90, 200 - fed * 50);
     if (jh.time <= 0) { jh.time = 0; over = true; }
   } else if (--jh.wait <= 0) {
     jh.hungry = true; jh.time = 1;
@@ -311,8 +311,8 @@ function drawTitle() {
   ctx.fillStyle = "#c0392b"; ctx.fillRect(b.x, b.y + 4, b.w, b.h);
   ctx.fillStyle = titleFrame % 60 < 30 ? "#e0302f" : "#ef4a3f";
   ctx.fillRect(b.x, b.y, b.w, b.h);
-  ctx.fillStyle = "#fff"; ctx.font = "bold 20px sans-serif";
-  ctx.fillText("들어가기", 240, b.y + 29);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 15px sans-serif";
+  ctx.fillText("들어가기<하드모드>", 240, b.y + 29);
 }
 
 // ===== 8. 게임 루프 =====
