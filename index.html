@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>지현이집</title>
+<style>
+  body { margin: 0; background: #1a1a1a; color: #eee; font-family: sans-serif; text-align: center; }
+  canvas { width: 100%; max-width: 720px; image-rendering: pixelated; margin-top: 16px; cursor: pointer; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c" width="480" height="320"></canvas>
+<p>바닥을 클릭하면 걸어갑니다 · 밥솥에서 밥을 퍼서 시간 안에 지현이에게 밥을 주세요</p>
+
+<script>
+// ===== 1. 캔버스 준비 =====
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+const S = 4; // 도트 한 칸 크기
+
+// ===== 2. 캐릭터 도트 그림 (글자 하나 = 색 하나, 점은 빈칸) =====
+// 손님 (내가 조종하는 캐릭터, 여자, 단발머리)
+const GUEST_BODY = [
+  "..hhhh..",
+  ".hhhhhh.",
+  "hhsssshh",
+  "hseesseh",
+  "hssmmssh",
+  "..ssss..",
+  ".cccccc.",
+  "sccccccs",
+  "sccccccs",
+  ".cccccc.",
+];
+// 지현이 (긴 머리, 빨간 옷)
+const JIHYUN_BODY = [
+  "..hhhh..",
+  ".hhhhhh.",
+  "hhsssshh",
+  "hseesseh",
+  "hssmmssh",
+  "h.ssss.h",
+  "hcccccch",
+  "sccccccs",
+  "sccccccs",
+  ".cccccc.",
+];
+// 지현이가 밥 먹을 때 (입 벌림)
+const JIHYUN_EAT = JIHYUN_BODY.slice();
+JIHYUN_EAT[4] = "hssMMssh";
+
+const LEGS = [
+  [".pp..pp.", ".pp..pp."], // 서 있을 때
+  ["..pp.pp.", ".pp...pp"], // 걸을 때
+];
+const GUEST  = { h: "#7a4a24", s: "#f2c9a0", e: "#222", c: "#f5c518", p: "#2d2d3a", m: "#e88" };
+const JIHYUN = { h: "#2a1a12", s: "#f6d2b4", e: "#222", c: "#e0302f", p: "#2d2d3a", m: "#e88", M: "#822" };
+
+function drawChar(x, y, body, pal, legFrame) {
+  const rows = body.concat(LEGS[legFrame]);
+  const ox = x - 16, oy = y - rows.length * S;
+  rows.forEach((row, j) => {
+    [...row].forEach((ch, i) => {
+      if (ch === ".") return;
+      ctx.fillStyle = pal[ch];
+      ctx.fillRect(ox + i * S, oy + j * S, S, S);
+    });
+  });
+}
+
+// 밥공기
+function drawBowl(x, y) {
+  ctx.fillStyle = "#fff";    ctx.fillRect(x - 6, y - 12, 12, 3);  // 밥 윗부분
+  ctx.fillRect(x - 8, y - 9, 16, 3);
+  ctx.fillStyle = "#3a6ea5"; ctx.fillRect(x - 8, y - 6, 16, 4);  // 그릇
+  ctx.fillRect(x - 6, y - 2, 12, 2);
+}
+
+// ===== 3. 게임 상태 =====
+let me, jh, fed, over, win, winFrame, frame;
+const GOAL = 3; // 이만큼 먹이면 성공
+const COOKER = { x: 90, y: 215 };   // 밥솥 앞
+const TABLE  = { x: 410, y: 225 };  // 식탁 앞
+
+function reset() {
+  me = { x: 240, y: 270, tx: 240, ty: 270, hand: false, step: 0 };
+  jh = { x: 410, y: 192, hungry: true, time: 1, eating: 0, wait: 0 };
+  fed = 0; over = false; win = false; winFrame = 0; frame = 0;
+}
+
+// ===== 4. 클릭(터치)하면 그곳으로 이동 =====
+let scene = "title"; // "title" = 입장 화면, "play" = 게임 중
+const ENTER_BTN = { x: 170, y: 252, w: 140, h: 44 };
+
+cv.addEventListener("pointerdown", e => {
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * cv.width / r.width;
+  const y = (e.clientY - r.top) * cv.height / r.height;
+
+  // 입장 화면: <들어가기> 버튼을 누르면 게임 시작
+  if (scene === "title") {
+    const b = ENTER_BTN;
+    if (x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) { reset(); scene = "play"; }
+    return;
+  }
+  if (over) { reset(); return; }
+  if (win) { if (winFrame > 60) scene = "title"; return; } // 성공 후 클릭 → 입장 화면으로
+  me.tx = Math.max(20, Math.min(460, x));
+  me.ty = Math.max(200, Math.min(305, y));
+});
+
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+// ===== 5. 매 프레임 상태 계산 =====
+function update() {
+  if (win) { winFrame++; return; }
+  if (over) return;
+  frame++;
+
+  // 걷기
+  const dx = me.tx - me.x, dy = me.ty - me.y, d = Math.hypot(dx, dy);
+  if (d > 2) { me.x += dx / d * 3; me.y += dy / d * 3; me.step++; }
+  else me.step = 0;
+
+  // 밥솥에서 밥 푸기
+  if (!me.hand && dist(me, COOKER) < 45) me.hand = true;
+
+  // 지현이에게 밥 먹여주기
+  if (me.hand && jh.hungry && dist(me, TABLE) < 70) {
+    me.hand = false; jh.hungry = false; fed++;
+    jh.eating = 60; jh.wait = 90;
+    if (fed >= GOAL) { win = true; return; } // 3공기 다 먹이면 성공!
+  }
+
+  if (jh.eating > 0) jh.eating--;
+
+  // 시간바 (먹일수록 빨리 줄어듦) — 다 떨어지면 실패
+  if (jh.hungry) {
+    jh.time -= 1 / Math.max(240, 600 - fed * 30);
+    if (jh.time <= 0) { jh.time = 0; over = true; }
+  } else if (--jh.wait <= 0) {
+    jh.hungry = true; jh.time = 1;
+  }
+}
+
+// ===== 6. 그리기 =====
+function drawTableScene() {
+  // 지현이 (앉아 있어서 다리는 식탁에 가려짐)
+  const chewing = jh.eating > 0 && Math.floor(jh.eating / 8) % 2 === 0;
+  drawChar(jh.x, jh.y, chewing ? JIHYUN_EAT : JIHYUN_BODY, JIHYUN, 0);
+  // 의자 등받이
+  ctx.fillStyle = "#6a4a2a"; ctx.fillRect(jh.x - 22, jh.y - 30, 4, 34);
+  ctx.fillRect(jh.x + 18, jh.y - 30, 4, 34);
+  // 식탁
+  ctx.fillStyle = "#b08a5a"; ctx.fillRect(360, 180, 100, 10);
+  ctx.fillStyle = "#8a6a40"; ctx.fillRect(360, 190, 100, 6);
+  ctx.fillRect(366, 196, 6, 26); ctx.fillRect(448, 196, 6, 26);
+  // 수저
+  ctx.fillStyle = "#ccc"; ctx.fillRect(438, 182, 2, 7); ctx.fillRect(442, 182, 2, 7);
+}
+
+function draw() {
+  // 벽
+  ctx.fillStyle = "#fbf3e4"; ctx.fillRect(0, 0, 480, 140);
+  ctx.fillStyle = "#f2e2c4";                                 // 벽지 줄무늬
+  for (let x = 0; x < 480; x += 24) ctx.fillRect(x, 0, 10, 130);
+  ctx.fillStyle = "#d9c3a0"; ctx.fillRect(0, 130, 480, 10);  // 걸레받이
+  // 창문
+  ctx.fillStyle = "#a8d8f0"; ctx.fillRect(300, 30, 120, 70);
+  ctx.fillStyle = "#fff";    ctx.fillRect(296, 26, 128, 4); ctx.fillRect(296, 100, 128, 4);
+  ctx.fillRect(357, 30, 6, 70);
+  // 간판
+  ctx.fillStyle = "#c9a227"; ctx.fillRect(170, 30, 100, 34);
+  ctx.fillStyle = "#3b2a1a"; ctx.font = "bold 18px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText("지현이집", 220, 54);
+  // 바닥 타일
+  for (let y = 140; y < 320; y += 20)
+    for (let x = 0; x < 480; x += 20) {
+      ctx.fillStyle = (x + y) % 40 === 0 ? "#c8eaa0" : "#bce293";
+      ctx.fillRect(x, y, 20, 20);
+    }
+  // 조리대 + 밥솥
+  ctx.fillStyle = "#a07850"; ctx.fillRect(30, 128, 120, 10);
+  ctx.fillStyle = "#7a5a3a"; ctx.fillRect(30, 138, 120, 50);
+  ctx.fillStyle = "#eee";    ctx.fillRect(48, 98, 40, 30);   // 밥솥 몸통
+  ctx.fillStyle = "#ccc";    ctx.fillRect(46, 94, 44, 8);    // 뚜껑
+  ctx.fillStyle = "#e33";    ctx.fillRect(62, 110, 8, 5);    // 버튼
+  if (frame % 40 < 20) {                                     // 김
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillRect(66, 84, 3, 6); ctx.fillRect(70, 78, 3, 6);
+  }
+  drawBowl(115, 128); drawBowl(135, 128);
+
+  // 캐릭터 (아래쪽에 있는 쪽을 나중에 그려서 앞에 보이게)
+  const walking = me.step ? Math.floor(me.step / 8) % 2 : 0;
+  const list = [
+    { y: 222,  fn: drawTableScene },
+    { y: me.y, fn: () => drawChar(me.x, me.y, GUEST_BODY, GUEST, walking) },
+  ].sort((a, b) => a.y - b.y);
+  list.forEach(o => o.fn());
+
+  // 들고 있는 밥
+  if (me.hand) drawBowl(me.x, me.y - 50);
+
+  // 지현이 말풍선 + 시간바
+  if (jh.hungry) {
+    ctx.fillStyle = "#fff"; ctx.fillRect(jh.x - 18, jh.y - 82, 36, 26);
+    ctx.fillRect(jh.x - 4, jh.y - 56, 8, 6);
+    drawBowl(jh.x, jh.y - 62);
+    ctx.fillStyle = "#333"; ctx.fillRect(jh.x - 30, jh.y - 96, 60, 6);
+    ctx.fillStyle = jh.time > 0.3 ? "#5c5" : "#e44";
+    ctx.fillRect(jh.x - 30, jh.y - 96, 60 * jh.time, 6);
+  }
+  if (jh.eating > 0) {
+    ctx.fillStyle = "#c0392b"; ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("아 마싯당", jh.x, jh.y - 62);
+  }
+
+  // 점수판
+  ctx.textAlign = "left"; ctx.fillStyle = "#4a3a2c"; ctx.font = "bold 16px sans-serif";
+  ctx.fillText("먹인 밥: " + fed + " / " + GOAL + "공기", 12, 22);
+
+  // 성공 화면
+  if (win) drawWin();
+
+  // 실패
+  if (over) {
+    ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, 0, 480, 320);
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+    ctx.font = "bold 26px sans-serif"; ctx.fillText("지현이가 배고파서 굶어죽었어요", 240, 150);
+    ctx.font = "16px sans-serif";
+    ctx.fillText("밥 " + fed + "공기 · 클릭하면 다시 시작", 240, 182);
+  }
+}
+
+// ===== 성공 화면: 지현이가 1억 포상 =====
+function drawWin() {
+  const t = winFrame;
+  // 금빛 배경
+  ctx.fillStyle = "rgba(255, 236, 160, 0.95)"; ctx.fillRect(0, 0, 480, 320);
+  // 빛줄기
+  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+  for (let i = 0; i < 12; i++) {
+    const a = i * Math.PI / 6 + t / 60;
+    ctx.save(); ctx.translate(240, 175); ctx.rotate(a);
+    ctx.fillRect(0, -6, 300, 12); ctx.restore();
+  }
+  // 떨어지는 지폐
+  for (let i = 0; i < 18; i++) {
+    const x = (i * 53 + Math.sin(t / 20 + i) * 12) % 480;
+    const y = (t * (1.5 + (i % 4) * 0.5) + i * 37) % 360 - 30;
+    ctx.fillStyle = "#3f9b4a"; ctx.fillRect(x, y, 22, 11);
+    ctx.fillStyle = "#a6e3a1"; ctx.fillRect(x + 8, y + 3, 6, 5);
+  }
+  // 지현이 (2배 크기, 통통 튀기)
+  const bounce = Math.abs(Math.sin(t / 10)) * 8;
+  ctx.save(); ctx.translate(240, 230 - bounce); ctx.scale(2, 2);
+  drawChar(0, 0, JIHYUN_BODY, JIHYUN, 0);
+  ctx.restore();
+  // 돈가방
+  ctx.fillStyle = "#b8862d"; ctx.fillRect(280, 196, 40, 34);
+  ctx.fillStyle = "#8a6420"; ctx.fillRect(292, 188, 16, 8);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 18px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText("₩", 300, 220);
+  // 글자
+  ctx.fillStyle = "#c0392b"; ctx.font = "bold 34px sans-serif";
+  ctx.fillText("성공!", 240, 50);
+  ctx.fillStyle = "#4a3a2c"; ctx.font = "bold 18px sans-serif";
+  ctx.fillText("지현이가 100kg를 달성했어요", 240, 80);
+  ctx.fillStyle = "#c0392b"; ctx.font = "bold 24px sans-serif";
+  ctx.fillText("포상금 1억 원 획득!", 240, 275);
+  if (t > 60 && t % 60 < 40) {
+    ctx.fillStyle = "#4a3a2c"; ctx.font = "14px sans-serif";
+    ctx.fillText("클릭하면 처음으로", 240, 302);
+  }
+}
+
+// ===== 7. 입장 화면 =====
+let titleFrame = 0;
+function drawTitle() {
+  titleFrame++;
+  // 하늘
+  ctx.fillStyle = "#bfe6ff"; ctx.fillRect(0, 0, 480, 320);
+  // 구름
+  ctx.fillStyle = "#fff";
+  const cx = (titleFrame * 0.3) % 560 - 80;
+  ctx.fillRect(cx, 40, 60, 14); ctx.fillRect(cx + 12, 30, 36, 12);
+  ctx.fillRect((cx + 280) % 560 - 80, 70, 50, 12);
+  // 잔디
+  ctx.fillStyle = "#9fd97a"; ctx.fillRect(0, 230, 480, 90);
+  // 집
+  ctx.fillStyle = "#fbf3e4"; ctx.fillRect(140, 110, 200, 125);
+  ctx.fillStyle = "#e0302f";                                     // 지붕
+  for (let i = 0; i < 50; i += 4) ctx.fillRect(130 + i, 110 - i, 220 - i * 2, 4);
+  ctx.fillStyle = "#a07850"; ctx.fillRect(220, 165, 40, 70);     // 문
+  ctx.fillStyle = "#f5c518"; ctx.fillRect(250, 198, 4, 4);       // 문고리
+  ctx.fillStyle = "#a8d8f0"; ctx.fillRect(160, 160, 40, 34); ctx.fillRect(280, 160, 40, 34); // 창문
+  ctx.fillStyle = "#fff";    ctx.fillRect(178, 160, 4, 34);  ctx.fillRect(298, 160, 4, 34);
+  // 간판
+  ctx.fillStyle = "#c9a227"; ctx.fillRect(190, 122, 100, 30);
+  ctx.fillStyle = "#3b2a1a"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText("제이빌리지304호", 240, 143);
+  // 지현이와 손님이 문 옆에 서 있음
+  drawChar(110, 240, JIHYUN_BODY, JIHYUN, 0);
+  drawChar(370, 240, GUEST_BODY, GUEST, Math.floor(titleFrame / 20) % 2);
+  // 제목
+  ctx.fillStyle = "#4a3a2c"; ctx.font = "bold 30px sans-serif";
+  ctx.fillText("지현이와 밥먹기", 240, 46);
+  // <들어가기> 버튼 (살짝 깜빡임)
+  const b = ENTER_BTN;
+  ctx.fillStyle = "#c0392b"; ctx.fillRect(b.x, b.y + 4, b.w, b.h);
+  ctx.fillStyle = titleFrame % 60 < 30 ? "#e0302f" : "#ef4a3f";
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 20px sans-serif";
+  ctx.fillText("들어가기", 240, b.y + 29);
+}
+
+// ===== 8. 게임 루프 =====
+function loop() {
+  if (scene === "title") drawTitle();
+  else { update(); draw(); }
+  requestAnimationFrame(loop);
+}
+reset();
+loop();
+</script>
+</body>
+</html>
