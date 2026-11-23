@@ -92,14 +92,16 @@ const STATIONS = [                    // 음식 집는 곳 (조리대 앞 바닥
   { item: "bread", x: 220, y: 215 },  // 빵 바구니
 ];
 const HH_TOTAL = 7;   // 밥2 + 국2 + 빵3
+// 지현이2의 첫 시간바 길이(프레임, 60 = 1초). 지현이1을 다 먹이고 빵을 가장 빨리 가져가면 시간바가 조금만 남도록 맞춘 값
+const J2_FIRST = 380;
 let jhs, overWho;
 
 function reset() {
   me = { x: 240, y: 270, tx: 240, ty: 270, hand: false, step: 0, items: [], canPick: true };
   jh = { x: 410, y: 192, hungry: true, time: 1, eating: 0, wait: 0 };
   jhs = [
-    { name: "지현이1", x: 330, y: 192, needs: { rice: 2, soup: 2 }, fed: 0, hungry: true, time: 1, eating: 0, wait: 0, done: false },
-    { name: "지현이2", x: 430, y: 192, needs: { bread: 3 },         fed: 0, hungry: true, time: 1, eating: 0, wait: 0, done: false },
+    { name: "지현이1", x: 330, y: 192, needs: { rice: 2, soup: 2 }, first: 270,        fed: 0, hungry: true, time: 1, eating: 0, wait: 0, done: false },
+    { name: "지현이2", x: 430, y: 192, needs: { bread: 3 },         first: J2_FIRST, fed: 0, hungry: true, time: 1, eating: 0, wait: 0, done: false },
   ];
   fed = 0; over = false; win = false; winFrame = 0; frame = 0; overWho = "";
 }
@@ -203,7 +205,7 @@ function updateHH() {
     if (j.eating > 0) j.eating--;
     if (j.done) return;
     if (j.hungry) {
-      j.time -= 1 / Math.max(117, 270 - j.fed * 45);
+      j.time -= 1 / (j.fed === 0 ? j.first : Math.max(117, 270 - j.fed * 45));
       if (j.time <= 0) { j.time = 0; over = true; overWho = j.name; }
     } else if (--j.wait <= 0) {
       j.hungry = true; j.time = 1;
